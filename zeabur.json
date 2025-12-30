@@ -1,0 +1,9 @@
+{
+  "$schema": "https://zeabur.com/schema.json",
+  "build": {
+    "type": "nodejs"
+  },
+  "deploy": {
+    "command": "npm start"
+  }
+}
