@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>看清看懂 - AI健康助手 | MediScan AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fade-in 0.3s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+    const STORAGE_KEY_RESULT = 'mediscan_last_result';
+    const STORAGE_KEY_AGREED = 'mediscan_disclaimer_agreed_v1';
+    const APP_VERSION = "v1.5.1";
+    const DOMAIN_NAME = "mediscan-ai.top";
+
+    const api = {
+      async analyze(mode, images, pdfData) {
+        const response = await fetch('/api/analyze', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, images, pdfData })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '分析失败');
+        return data.data;
+      },
+      async tts(text) {
+        const response = await fetch('/api/tts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '语音失败');
+        return data.audio;
+      },
+      async chat(message, contextType, contextItem, contextContent, history) {
+        const response = await fetch('/api/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, contextType, contextItem, contextContent, history })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '回复失败');
+        return data.reply;
+      }
+    };
+
+    const compressImage = async (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (e) => {
+          const img = new Image();
+          img.src = e.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, 1280 / img.width);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
+          };
+        };
+      });
+    };
+
+    const fileToBase64 = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const HeartPulse = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /></svg>;
+    const FileText = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>;
+    const Pill = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>;
+    const Utensils = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>;
+    const X = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>;
+    const RefreshCw = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>;
+    const AlertTriangle = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>;
+    const CheckCircle = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
+    const ShieldAlert = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
+    const Speaker = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><rect x="4" y="9" width="6" height="6" rx="1"/><path d="M10 9L17 4V20L10 15"/><path d="M21 8C22.6569 9.65685 22.6569 12.3431 21 14"/></svg>;
+   
+    const decodeBase64 = (base64) => {
+      const bin = atob(base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    };
+
+    const TTSButton = ({ text, size = 'normal' }) => {
+      const [playing, setPlaying] = useState(false);
+      const [loading, setLoading] = useState(false);
+      const audioCtxRef = useRef(null);
+      const sourceRef = useRef(null);
+
+      const play = async () => {
+        if (playing) { sourceRef.current?.stop(); setPlaying(false); return; }
+        setLoading(true);
+        try {
+          const audio = await api.tts(text);
+          if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') await ctx.resume();
+          const bytes = decodeBase64(audio);
+          const int16 = new Int16Array(bytes.buffer);
+          const buffer = ctx.createBuffer(1, int16.length, 24000);
+          const channel = buffer.getChannelData(0);
+          for (let i = 0; i < int16.length; i++) channel[i] = int16[i] / 32768;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+          source.onended = () => setPlaying(false);
+          source.start();
+          sourceRef.current = source;
+          setPlaying(true);
+        } catch (e) { console.error(e); }
+        setLoading(false);
+      };
+
+      const cls = size === 'large' 
+        ? 'w-full py-4 text-xl rounded-xl' 
+        : 'px-4 py-2 text-base rounded-lg';
+      return (
+        <button onClick={play} disabled={loading} className={`flex items-center justify-center font-bold border-2 transition-all ${playing ? 'bg-red-100 text-red-600 border-red-300' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'} ${cls}`}>
+          {loading ? <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"/> : <Speaker className="w-5 h-5 mr-2"/>}
+          {playing ? '停止' : '🔊 读给我听'}
+        </button>
+      );
+    };
+
+    const DisclaimerModal = ({ onAgree }) => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+        <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl">
+          <div className="flex justify-center mb-4"><div className="bg-red-100 p-4 rounded-full"><ShieldAlert className="w-12 h-12 text-red-600"/></div></div>
+          <h2 className="text-2xl font-bold text-center mb-4">使用前必读</h2>
+          <div className="bg-gray-50 rounded-xl p-4 mb-6 text-gray-700">
+            <p className="mb-3 font-medium">为了您的健康负责，请了解：</p>
+            <ul className="space-y-2">
+              <li>• 本工具<strong>不是医生</strong>，仅供参考</li>
+              <li>• AI可能出错，<strong>不能代替医生诊断</strong></li>
+              <li>• 身体不适请<strong>及时就医</strong></li>
+            </ul>
+          </div>
+          <button onClick={onAgree} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold rounded-xl flex items-center justify-center">
+            <CheckCircle className="w-6 h-6 mr-2"/>我已阅读，同意继续
+          </button>
+        </div>
+      </div>
+    );
+
+    const ThinkingIndicator = ({ mode }) => {
+      const [text, setText] = useState("正在看...");
+      const msgs = { report: ["正在看报告...", "分析指标中...", "生成建议..."], medicine: ["识别药品...", "查看说明书..."], food: ["看配料表...", "分析成分..."] };
+      useEffect(() => { let i = 0; const t = setInterval(() => { i = (i + 1) % msgs[mode].length; setText(msgs[mode][i]); }, 2000); return () => clearInterval(t); }, [mode]);
+      return <span>{text}</span>;
+    };
+
+    const App = () => {
+      const [agreed, setAgreed] = useState(false);
+      const [mode, setMode] = useState('report');
+      const [images, setImages] = useState([]);
+      const [pdf, setPdf] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState(null);
+      const imgRef = useRef(null);
+      const pdfRef = useRef(null);
+
+      useEffect(() => { if (localStorage.getItem(STORAGE_KEY_AGREED) === 'true') setAgreed(true); }, []);
+      const handleAgree = () => { setAgreed(true); localStorage.setItem(STORAGE_KEY_AGREED, 'true'); };
+
+      useEffect(() => {
+        const saved = localStorage.getItem(STORAGE_KEY_RESULT + '_' + mode);
+        if (saved) { try { const p = JSON.parse(saved); if (p.type === mode) setResult(p); } catch(e){} }
+        else setResult(null);
+      }, [mode]);
+      useEffect(() => { if (result) localStorage.setItem(STORAGE_KEY_RESULT + '_' + mode, JSON.stringify(result)); }, [result, mode]);
+
+      const switchMode = (m) => { setMode(m); setImages([]); setPdf(null); setError(null); };
+      const clearAll = () => { localStorage.removeItem(STORAGE_KEY_RESULT + '_' + mode); setResult(null); setImages([]); setPdf(null); };
+
+      const handleImage = async (e) => {
+        const files = e.target.files; if (!files) return;
+        const newImgs = [];
+        for (const f of files) {
+          if (!f.type.startsWith('image/')) continue;
+          const base64 = await compressImage(f);
+          newImgs.push({ preview: URL.createObjectURL(f), base64, mimeType: 'image/jpeg' });
+        }
+        setImages(prev => [...prev, ...newImgs]);
+      };
+
+      const handlePdf = async (e) => {
+        const f = e.target.files?.[0]; if (!f || f.type !== 'application/pdf') return;
+        const base64 = await fileToBase64(f);
+        setPdf({ name: f.name, base64 });
+      };
+
+      const analyze = async () => {
+        if (!images.length && !pdf) { setError('请先上传图片或PDF'); return; }
+        setLoading(true); setError(null); setResult(null);
+        try {
+          const data = await api.analyze(mode, images.map(i => ({ base64: i.base64, mimeType: i.mimeType })), pdf ? { base64: pdf.base64 } : null);
+          setResult({ type: mode, data });
+        } catch (e) { setError(e.message || '分析失败，请重试'); }
+        setLoading(false);
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {!agreed && <DisclaimerModal onAgree={handleAgree} />}
+          
+          <header className="bg-gradient-to-r from-blue-700 to-blue-600 shadow-md sticky top-0 z-20">
+            <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-white">
+                <HeartPulse className="w-8 h-8" />
+                <h1 className="text-xl font-bold">MediScan AI</h1>
+              </div>
+              <div className="bg-white/20 text-white text-xs px-2 py-1 rounded">AI智能版</div>
+            </div>
+          </header>
+
+          <div className="bg-white shadow sticky top-[60px] z-10 py-3">
+            <div className="max-w-4xl mx-auto px-4 grid grid-cols-3 gap-3">
+              {[['report', '查体检', 'blue'], ['medicine', '看药品', 'green'], ['food', '看食品', 'orange']].map(([m, label, color]) => (
+                <button key={m} onClick={() => switchMode(m)} className={`flex flex-col items-center py-3 rounded-xl border-2 transition-all ${mode === m ? `bg-${color}-600 border-${color}-600 text-white shadow-lg` : `bg-white border-${color}-100 text-gray-500`}`}>
+                  {m === 'report' ? <FileText className="w-8 h-8 mb-1"/> : m === 'medicine' ? <Pill className="w-8 h-8 mb-1"/> : <Utensils className="w-8 h-8 mb-1"/>}
+                  <span className="text-sm font-bold">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <main className={`max-w-4xl mx-auto px-4 py-6 ${!agreed ? 'blur-sm pointer-events-none' : ''}`}>
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-1">
+                {mode === 'report' ? '体检报告看不懂？' : mode === 'medicine' ? '这药怎么吃？' : '这东西能吃吗？'}
+              </h2>
+              <p className="text-gray-600">{mode === 'report' ? '拍照上传，帮您讲明白' : mode === 'medicine' ? '拍药盒说明书，帮您把关' : '拍配料表，帮您看看'}</p>
+            </div>
+
+            {!result && (
+              <div className="space-y-4">
+                {mode === 'report' && (
+                  <div className={`border-4 border-dashed rounded-2xl p-6 text-center ${pdf ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`}>
+                    {pdf ? (
+                      <div className="flex items-center justify-center gap-3">
+                        <FileText className="w-10 h-10 text-blue-600"/>
+                        <span className="font-bold text-blue-800">{pdf.name}</span>
+                        <button onClick={() => setPdf(null)} className="p-2 bg-red-100 rounded-full text-red-600"><X className="w-5 h-5"/></button>
+                      </div>
+                    ) : (
+                      <><FileText className="w-16 h-16 text-gray-400 mx-auto mb-3"/>
+                      <button onClick={() => pdfRef.current?.click()} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full">上传PDF</button></>
+                    )}
+                    <input ref={pdfRef} type="file" accept="application/pdf" onChange={handlePdf} className="hidden"/>
+                  </div>
+                )}
+                
+                <div className={`border-4 border-dashed rounded-2xl p-6 ${images.length ? 'border-teal-400 bg-teal-50' : 'border-gray-300'}`}>
+                  {images.length === 0 ? (
+                    <div className="text-center">
+                      {mode === 'medicine' ? <Pill className="w-16 h-16 text-gray-400 mx-auto mb-3"/> : mode === 'food' ? <Utensils className="w-16 h-16 text-gray-400 mx-auto mb-3"/> : <FileText className="w-16 h-16 text-gray-400 mx-auto mb-3"/>}
+                      <button onClick={() => imgRef.current?.click()} className="px-6 py-3 bg-teal-600 text-white font-bold rounded-full">拍照上传</button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      {images.map((img, i) => (
+                        <div key={i} className="relative aspect-square rounded-lg overflow-hidden">
+                          <img src={img.preview} className="w-full h-full object-cover"/>
+                          <button onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"><X className="w-4 h-4"/></button>
+                        </div>
+                      ))}
+                      <button onClick={() => imgRef.current?.click()} className="aspect-square border-2 border-dashed border-teal-300 rounded-lg flex items-center justify-center text-teal-600 font-bold">+加图</button>
+                    </div>
+                  )}
+                  <input ref={imgRef} type="file" accept="image/*" multiple onChange={handleImage} className="hidden"/>
+                </div>
+
+                {error && <div className="p-4 bg-red-100 border-l-4 border-red-500 text-red-800 rounded">{error}</div>}
+
+                <button onClick={analyze} disabled={loading || (!images.length && !pdf)} className={`w-full py-5 rounded-xl text-xl font-bold transition-all ${loading || (!images.length && !pdf) ? 'bg-gray-300 text-gray-500' : 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg hover:shadow-xl'}`}>
+                  {loading ? <ThinkingIndicator mode={mode}/> : '开始帮我看'}
+                </button>
+              </div>
+            )}
+
+            {result && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-blue-500">
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">📋 分析结果</h3>
+                  {result.type === 'report' && (
+                    <div className="space-y-4">
+                      <p className="text-lg text-gray-700">{result.data.overall_summary}</p>
+                      <TTSButton text={result.data.overall_summary} size="large"/>
+                      {result.data.attention_needed?.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="flex items-center text-lg font-bold text-orange-600 mb-3"><AlertTriangle className="w-5 h-5 mr-2"/>需要注意</h4>
+                          {result.data.attention_needed.map((item, i) => (
+                            <div key={i} className="bg-orange-50 rounded-xl p-4 mb-3 border-l-4 border-orange-400">
+                              <div className="font-bold text-gray-800">{item.item} {item.value && <span className="text-orange-600">({item.value})</span>}</div>
+                              <p className="text-gray-600 mt-1">{item.explanation}</p>
+                              <p className="text-green-700 mt-2 font-medium">💡 {item.advice}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {result.type === 'medicine' && (
+                    <div className="space-y-3">
+                      <h4 className="text-2xl font-bold text-blue-800">{result.data.name}</h4>
+                      <p><strong>功效：</strong>{result.data.efficacy}</p>
+                      <p><strong>用法：</strong>{result.data.usage}</p>
+                      <p className="text-red-600"><strong>注意：</strong>{result.data.contraindications}</p>
+                      <TTSButton text={`${result.data.name}。${result.data.efficacy}。用法：${result.data.usage}。注意：${result.data.contraindications}`} size="large"/>
+                    </div>
+                  )}
+                  {result.type === 'food' && (
+                    <div className="space-y-3">
+                      <h4 className="text-2xl font-bold text-orange-800">{result.data.name}</h4>
+                      <p>{result.data.ingredients_analysis}</p>
+                      <div className="flex gap-2">
+                        {['sugar', 'salt', 'fat'].map(k => (
+                          <span key={k} className={`px-3 py-1 rounded-full text-sm font-bold ${result.data.nutrition_alert?.[k] === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                            {k === 'sugar' ? '糖' : k === 'salt' ? '盐' : '油'}: {result.data.nutrition_alert?.[k] === 'high' ? '高' : '低'}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-green-700 font-medium">👴 {result.data.advice_for_elderly}</p>
+                      <TTSButton text={`${result.data.name}。${result.data.summary}。${result.data.advice_for_elderly}`} size="large"/>
+                    </div>
+                  )}
+                </div>
+                <button onClick={clearAll} className="w-full py-4 bg-white border-2 border-gray-300 text-gray-700 font-bold rounded-xl flex items-center justify-center hover:bg-gray-50">
+                  <RefreshCw className="w-6 h-6 mr-2"/>重新开始
+                </button>
+              </div>
+            )}
+          </main>
+
+          <footer className="py-4 text-center text-gray-400 text-sm border-t bg-white mt-8">
+            <p>© 2025 {DOMAIN_NAME} | {APP_VERSION}</p>
+            <p>AI驱动，仅供参考，不作为医疗诊断依据</p>
+          </footer>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
