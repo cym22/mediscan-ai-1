@@ -1,6 +1,6 @@
 {
   "name": "mediscan-ai",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "description": "看清看懂 - AI健康助手",
   "type": "module",
   "main": "server/index.js",
