@@ -11,40 +11,70 @@
   <style>
     @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     .animate-fade-in { animation: fade-in 0.3s ease-out; }
+    * { -webkit-tap-highlight-color: transparent; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useRef, useEffect } = React;
-    const STORAGE_KEY_RESULT = 'mediscan_last_result';
-    const STORAGE_KEY_AGREED = 'mediscan_disclaimer_agreed_v1';
-    const APP_VERSION = "v1.5.1";
-    const DOMAIN_NAME = "mediscan-ai.top";
+    const { useState, useRef, useEffect, createContext, useContext } = React;
 
+    // ============================================================
+    // 常量和配置
+    // ============================================================
+    const APP_VERSION = "v2.0.0";
+    const DOMAIN_NAME = "mediscan-ai.top";
+    const STORAGE_KEYS = {
+      AGREED: 'mediscan_disclaimer_agreed_v2',
+      LARGE_FONT: 'mediscan_large_font',
+      LANGUAGE: 'mediscan_language',
+      HISTORY: 'mediscan_history',
+      RESULT: 'mediscan_result'
+    };
+
+    const LANGUAGES = {
+      zh: { name: '中文', flag: '🇨🇳' },
+      en: { name: 'English', flag: '🇺🇸' },
+      ja: { name: '日本語', flag: '🇯🇵' },
+      ko: { name: '한국어', flag: '🇰🇷' },
+      ru: { name: 'Русский', flag: '🇷🇺' }
+    };
+
+    // ============================================================
+    // Context
+    // ============================================================
+    const AppContext = createContext();
+    const useApp = () => useContext(AppContext);
+
+    // ============================================================
+    // API 调用
+    // ============================================================
     const api = {
-      async analyze(mode, images, pdfData) {
+      async analyze(mode, images, pdfData, language) {
         const response = await fetch('/api/analyze', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode, images, pdfData })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, images, pdfData, language })
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '分析失败');
         return data.data;
       },
-      async tts(text) {
+      async tts(text, language) {
         const response = await fetch('/api/tts', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, language })
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '语音失败');
         return data.audio;
       },
-      async chat(message, contextType, contextItem, contextContent, history) {
+      async chat(message, contextType, contextItem, contextContent, history, language) {
         const response = await fetch('/api/chat', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, contextType, contextItem, contextContent, history })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, contextType, contextItem, contextContent, history, language })
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '回复失败');
@@ -52,6 +82,9 @@
       }
     };
 
+    // ============================================================
+    // 工具函数
+    // ============================================================
     const compressImage = async (file) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -67,7 +100,9 @@
             canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
             resolve(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]);
           };
+          img.onerror = reject;
         };
+        reader.onerror = reject;
       });
     };
 
@@ -78,69 +113,184 @@
       reader.readAsDataURL(file);
     });
 
-    const HeartPulse = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /></svg>;
-    const FileText = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>;
-    const Pill = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>;
-    const Utensils = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>;
-    const X = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>;
-    const RefreshCw = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>;
-    const AlertTriangle = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>;
-    const CheckCircle = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
-    const ShieldAlert = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
-    const Speaker = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><rect x="4" y="9" width="6" height="6" rx="1"/><path d="M10 9L17 4V20L10 15"/><path d="M21 8C22.6569 9.65685 22.6569 12.3431 21 14"/></svg>;
-   
-    const decodeBase64 = (base64) => {
-      const bin = atob(base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return bytes;
+    // 生成日历提醒文件
+    const generateICS = (events) => {
+      const formatDate = (date) => {
+        const d = new Date(date);
+        return d.toISOString().replace(/-|:|\.\d+/g, '').slice(0, 15) + 'Z';
+      };
+      
+      let ics = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//MediScan AI//CN\n';
+      events.forEach((event, i) => {
+        ics += `BEGIN:VEVENT\nUID:${Date.now()}-${i}@mediscan.ai\n`;
+        ics += `DTSTAMP:${formatDate(new Date())}\n`;
+        ics += `DTSTART:${formatDate(event.start)}\n`;
+        ics += `DTEND:${formatDate(event.end)}\n`;
+        ics += `SUMMARY:${event.title}\n`;
+        ics += `DESCRIPTION:${event.description}\n`;
+        ics += 'BEGIN:VALARM\nTRIGGER:-PT15M\nACTION:DISPLAY\nDESCRIPTION:Reminder\nEND:VALARM\n';
+        ics += 'END:VEVENT\n';
+      });
+      ics += 'END:VCALENDAR';
+      return ics;
     };
 
+    const downloadICS = (icsContent, filename) => {
+      const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    // ============================================================
+    // 图标组件
+    // ============================================================
+    const Icons = {
+      Heart: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>,
+      File: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>,
+      Pill: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>,
+      Utensils: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></svg>,
+      X: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+      Refresh: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>,
+      Alert: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>,
+      Check: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+      Shield: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+      Speaker: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><rect x="4" y="9" width="6" height="6" rx="1"/><path d="M10 9L17 4V20L10 15"/><path d="M21 8C22.6569 9.65685 22.6569 12.3431 21 14"/></svg>,
+      Calendar: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+      Share: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
+      Clock: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      History: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>,
+      Settings: ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    };
+
+    // ============================================================
+    // TTS 按钮组件 - 修复 Safari 兼容性
+    // ============================================================
     const TTSButton = ({ text, size = 'normal' }) => {
+      const { language } = useApp();
       const [playing, setPlaying] = useState(false);
       const [loading, setLoading] = useState(false);
-      const audioCtxRef = useRef(null);
-      const sourceRef = useRef(null);
+      const [error, setError] = useState(null);
+      const audioRef = useRef(null);
 
       const play = async () => {
-        if (playing) { sourceRef.current?.stop(); setPlaying(false); return; }
+        if (playing) {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+          setPlaying(false);
+          return;
+        }
+        
         setLoading(true);
+        setError(null);
+        
         try {
-          const audio = await api.tts(text);
-          if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-          const ctx = audioCtxRef.current;
-          if (ctx.state === 'suspended') await ctx.resume();
-          const bytes = decodeBase64(audio);
-          const int16 = new Int16Array(bytes.buffer);
-          const buffer = ctx.createBuffer(1, int16.length, 24000);
-          const channel = buffer.getChannelData(0);
-          for (let i = 0; i < int16.length; i++) channel[i] = int16[i] / 32768;
-          const source = ctx.createBufferSource();
-          source.buffer = buffer;
-          source.connect(ctx.destination);
-          source.onended = () => setPlaying(false);
-          source.start();
-          sourceRef.current = source;
+          const audioBase64 = await api.tts(text, language);
+          
+          // 将 PCM 数据转换为 WAV 格式（Safari 兼容）
+          const pcmData = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
+          const wavBuffer = createWavFromPCM(pcmData, 24000, 1, 16);
+          
+          const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          
+          audio.onended = () => {
+            setPlaying(false);
+            URL.revokeObjectURL(url);
+          };
+          
+          audio.onerror = (e) => {
+            console.error('Audio playback error:', e);
+            setError('播放失败');
+            setPlaying(false);
+          };
+          
+          await audio.play();
           setPlaying(true);
-        } catch (e) { console.error(e); }
-        setLoading(false);
+        } catch (e) {
+          console.error('TTS Error:', e);
+          setError('语音生成失败');
+        } finally {
+          setLoading(false);
+        }
       };
 
-      const cls = size === 'large' 
-        ? 'w-full py-4 text-xl rounded-xl' 
-        : 'px-4 py-2 text-base rounded-lg';
+      // PCM 转 WAV 函数
+      const createWavFromPCM = (pcmData, sampleRate, numChannels, bitsPerSample) => {
+        const bytesPerSample = bitsPerSample / 8;
+        const blockAlign = numChannels * bytesPerSample;
+        const byteRate = sampleRate * blockAlign;
+        const dataSize = pcmData.length;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+        
+        // WAV header
+        const writeString = (offset, string) => {
+          for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        };
+        
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(36, 'data');
+        view.setUint32(40, dataSize, true);
+        
+        // Copy PCM data
+        const dataView = new Uint8Array(buffer, 44);
+        dataView.set(pcmData);
+        
+        return buffer;
+      };
+
+      const { largeFont } = useApp();
+      const baseClass = playing ? 'bg-red-100 text-red-600 border-red-300' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50';
+      const sizeClass = size === 'large' 
+        ? `w-full ${largeFont ? 'py-5 text-2xl' : 'py-4 text-xl'} rounded-xl`
+        : `${largeFont ? 'px-5 py-3 text-xl' : 'px-4 py-2 text-base'} rounded-lg`;
+
       return (
-        <button onClick={play} disabled={loading} className={`flex items-center justify-center font-bold border-2 transition-all ${playing ? 'bg-red-100 text-red-600 border-red-300' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'} ${cls}`}>
-          {loading ? <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"/> : <Speaker className="w-5 h-5 mr-2"/>}
-          {playing ? '停止' : '🔊 读给我听'}
+        <button onClick={play} disabled={loading} className={`flex items-center justify-center font-bold border-2 transition-all ${baseClass} ${sizeClass}`}>
+          {loading ? (
+            <span className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"/>
+          ) : (
+            <Icons.Speaker className={`${largeFont ? 'w-6 h-6' : 'w-5 h-5'} mr-2`}/>
+          )}
+          {error ? error : (playing ? '停止' : '🔊 读给我听')}
         </button>
       );
     };
 
+    // ============================================================
+    // 免责声明弹窗
+    // ============================================================
     const DisclaimerModal = ({ onAgree }) => (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
         <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl">
-          <div className="flex justify-center mb-4"><div className="bg-red-100 p-4 rounded-full"><ShieldAlert className="w-12 h-12 text-red-600"/></div></div>
+          <div className="flex justify-center mb-4">
+            <div className="bg-red-100 p-4 rounded-full">
+              <Icons.Shield className="w-12 h-12 text-red-600"/>
+            </div>
+          </div>
           <h2 className="text-2xl font-bold text-center mb-4">使用前必读</h2>
           <div className="bg-gray-50 rounded-xl p-4 mb-6 text-gray-700">
             <p className="mb-3 font-medium">为了您的健康负责，请了解：</p>
@@ -151,45 +301,294 @@
             </ul>
           </div>
           <button onClick={onAgree} className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold rounded-xl flex items-center justify-center">
-            <CheckCircle className="w-6 h-6 mr-2"/>我已阅读，同意继续
+            <Icons.Check className="w-6 h-6 mr-2"/>我已阅读，同意继续
           </button>
         </div>
       </div>
     );
 
-    const ThinkingIndicator = ({ mode }) => {
-      const [text, setText] = useState("正在看...");
-      const msgs = { report: ["正在看报告...", "分析指标中...", "生成建议..."], medicine: ["识别药品...", "查看说明书..."], food: ["看配料表...", "分析成分..."] };
-      useEffect(() => { let i = 0; const t = setInterval(() => { i = (i + 1) % msgs[mode].length; setText(msgs[mode][i]); }, 2000); return () => clearInterval(t); }, [mode]);
-      return <span>{text}</span>;
+    // ============================================================
+    // 设置面板
+    // ============================================================
+    const SettingsPanel = ({ isOpen, onClose }) => {
+      const { largeFont, setLargeFont, language, setLanguage } = useApp();
+      
+      if (!isOpen) return null;
+      
+      return (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
+          <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold">设置</h3>
+              <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
+                <Icons.X className="w-6 h-6"/>
+              </button>
+            </div>
+            
+            {/* 大字版开关 */}
+            <div className="flex items-center justify-between py-4 border-b">
+              <div>
+                <div className="font-bold text-lg">大字版</div>
+                <div className="text-gray-500 text-sm">放大界面文字，方便阅读</div>
+              </div>
+              <button 
+                onClick={() => setLargeFont(!largeFont)}
+                className={`w-14 h-8 rounded-full transition-colors ${largeFont ? 'bg-blue-600' : 'bg-gray-300'}`}
+              >
+                <div className={`w-6 h-6 bg-white rounded-full shadow transition-transform ${largeFont ? 'translate-x-7' : 'translate-x-1'}`}/>
+              </button>
+            </div>
+            
+            {/* 语言选择 */}
+            <div className="py-4">
+              <div className="font-bold text-lg mb-3">语言 / Language</div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(LANGUAGES).map(([code, { name, flag }]) => (
+                  <button
+                    key={code}
+                    onClick={() => setLanguage(code)}
+                    className={`p-3 rounded-xl border-2 transition-all ${language === code ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}`}
+                  >
+                    <span className="text-2xl mr-2">{flag}</span>
+                    <span className="font-medium">{name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
     };
 
+    // ============================================================
+    // 用药提醒设置
+    // ============================================================
+    const MedicineReminderModal = ({ medicine, isOpen, onClose }) => {
+      const [timesPerDay, setTimesPerDay] = useState(2);
+      const [times, setTimes] = useState(['08:00', '20:00']);
+      const [days, setDays] = useState(7);
+      const [notes, setNotes] = useState('');
+      
+      if (!isOpen) return null;
+      
+      const handleTimesChange = (num) => {
+        setTimesPerDay(num);
+        const defaultTimes = {
+          1: ['08:00'],
+          2: ['08:00', '20:00'],
+          3: ['08:00', '14:00', '20:00'],
+          4: ['08:00', '12:00', '16:00', '20:00']
+        };
+        setTimes(defaultTimes[num] || ['08:00']);
+      };
+      
+      const generateReminders = () => {
+        const events = [];
+        const startDate = new Date();
+        
+        for (let d = 0; d < days; d++) {
+          times.forEach(time => {
+            const [hours, minutes] = time.split(':');
+            const eventDate = new Date(startDate);
+            eventDate.setDate(eventDate.getDate() + d);
+            eventDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            
+            const endDate = new Date(eventDate);
+            endDate.setMinutes(endDate.getMinutes() + 30);
+            
+            events.push({
+              title: `💊 吃药提醒：${medicine.name}`,
+              description: `用法：${medicine.usage}\\n${notes ? '医嘱：' + notes : ''}`,
+              start: eventDate,
+              end: endDate
+            });
+          });
+        }
+        
+        const ics = generateICS(events);
+        downloadICS(ics, `用药提醒_${medicine.name}.ics`);
+        onClose();
+      };
+      
+      const { largeFont } = useApp();
+      const textSize = largeFont ? 'text-xl' : 'text-base';
+      
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className={`font-bold mb-4 ${largeFont ? 'text-2xl' : 'text-xl'}`}>⏰ 设置用药提醒</h3>
+            <p className={`text-gray-600 mb-4 ${textSize}`}>药品：{medicine.name}</p>
+            
+            {/* 每天几次 */}
+            <div className="mb-4">
+              <label className={`font-medium block mb-2 ${textSize}`}>每天吃几次？</label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => handleTimesChange(n)}
+                    className={`flex-1 py-3 rounded-xl border-2 font-bold ${timesPerDay === n ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-gray-200'}`}
+                  >
+                    {n}次
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* 什么时间 */}
+            <div className="mb-4">
+              <label className={`font-medium block mb-2 ${textSize}`}>什么时间吃？</label>
+              {times.map((time, i) => (
+                <input
+                  key={i}
+                  type="time"
+                  value={time}
+                  onChange={e => {
+                    const newTimes = [...times];
+                    newTimes[i] = e.target.value;
+                    setTimes(newTimes);
+                  }}
+                  className={`w-full p-3 border-2 rounded-xl mb-2 ${textSize}`}
+                />
+              ))}
+            </div>
+            
+            {/* 吃多久 */}
+            <div className="mb-4">
+              <label className={`font-medium block mb-2 ${textSize}`}>吃多少天？</label>
+              <input
+                type="number"
+                value={days}
+                onChange={e => setDays(parseInt(e.target.value) || 1)}
+                min="1"
+                max="365"
+                className={`w-full p-3 border-2 rounded-xl ${textSize}`}
+              />
+            </div>
+            
+            {/* 医嘱备注 */}
+            <div className="mb-6">
+              <label className={`font-medium block mb-2 ${textSize}`}>医生特别嘱咐（选填）</label>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="如：饭后服用，忌辛辣..."
+                className={`w-full p-3 border-2 rounded-xl h-24 ${textSize}`}
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <button onClick={onClose} className={`flex-1 py-3 border-2 rounded-xl font-bold ${textSize}`}>
+                取消
+              </button>
+              <button onClick={generateReminders} className={`flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold ${textSize}`}>
+                生成提醒
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================================
+    // 分享给子女
+    // ============================================================
+    const ShareButton = ({ type, data }) => {
+      const { largeFont } = useApp();
+      
+      const generateShareText = () => {
+        if (type === 'medicine') {
+          return `【用药信息分享】
+
+💊 药品：${data.name}
+📝 功效：${data.efficacy}
+⏰ 用法：${data.usage}
+⚠️ 注意：${data.contraindications}
+
+${data.summary}
+
+—— 来自「看清看懂」MediScan AI`;
+        }
+        return '';
+      };
+      
+      const handleShare = async () => {
+        const text = generateShareText();
+        
+        try {
+          await navigator.clipboard.writeText(text);
+          alert('已复制到剪贴板！\n请粘贴到微信或短信发送给家人。');
+        } catch (e) {
+          // Fallback for older browsers
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          alert('已复制到剪贴板！\n请粘贴到微信或短信发送给家人。');
+        }
+      };
+      
+      return (
+        <button onClick={handleShare} className={`flex items-center justify-center w-full py-3 bg-green-50 text-green-700 border-2 border-green-200 rounded-xl font-bold ${largeFont ? 'text-xl' : 'text-base'}`}>
+          <Icons.Share className={`${largeFont ? 'w-6 h-6' : 'w-5 h-5'} mr-2`}/>
+          发给孩子帮我设置
+        </button>
+      );
+    };
+
+    // ============================================================
+    // 主应用组件
+    // ============================================================
     const App = () => {
-      const [agreed, setAgreed] = useState(false);
+      const [agreed, setAgreed] = useState(() => localStorage.getItem(STORAGE_KEYS.AGREED) === 'true');
+      const [largeFont, setLargeFont] = useState(() => localStorage.getItem(STORAGE_KEYS.LARGE_FONT) === 'true');
+      const [language, setLanguage] = useState(() => localStorage.getItem(STORAGE_KEYS.LANGUAGE) || 'zh');
       const [mode, setMode] = useState('report');
       const [images, setImages] = useState([]);
       const [pdf, setPdf] = useState(null);
       const [loading, setLoading] = useState(false);
       const [result, setResult] = useState(null);
       const [error, setError] = useState(null);
+      const [showSettings, setShowSettings] = useState(false);
+      const [showReminder, setShowReminder] = useState(false);
+      
       const imgRef = useRef(null);
       const pdfRef = useRef(null);
 
-      useEffect(() => { if (localStorage.getItem(STORAGE_KEY_AGREED) === 'true') setAgreed(true); }, []);
-      const handleAgree = () => { setAgreed(true); localStorage.setItem(STORAGE_KEY_AGREED, 'true'); };
-
+      // 保存设置
       useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY_RESULT + '_' + mode);
-        if (saved) { try { const p = JSON.parse(saved); if (p.type === mode) setResult(p); } catch(e){} }
-        else setResult(null);
-      }, [mode]);
-      useEffect(() => { if (result) localStorage.setItem(STORAGE_KEY_RESULT + '_' + mode, JSON.stringify(result)); }, [result, mode]);
+        localStorage.setItem(STORAGE_KEYS.LARGE_FONT, largeFont);
+      }, [largeFont]);
+      
+      useEffect(() => {
+        localStorage.setItem(STORAGE_KEYS.LANGUAGE, language);
+      }, [language]);
 
-      const switchMode = (m) => { setMode(m); setImages([]); setPdf(null); setError(null); };
-      const clearAll = () => { localStorage.removeItem(STORAGE_KEY_RESULT + '_' + mode); setResult(null); setImages([]); setPdf(null); };
+      const handleAgree = () => {
+        setAgreed(true);
+        localStorage.setItem(STORAGE_KEYS.AGREED, 'true');
+      };
+
+      const switchMode = (m) => {
+        setMode(m);
+        setImages([]);
+        setPdf(null);
+        setResult(null);
+        setError(null);
+      };
+
+      const clearAll = () => {
+        setResult(null);
+        setImages([]);
+        setPdf(null);
+        setError(null);
+      };
 
       const handleImage = async (e) => {
-        const files = e.target.files; if (!files) return;
+        const files = e.target.files;
+        if (!files) return;
         const newImgs = [];
         for (const f of files) {
           if (!f.type.startsWith('image/')) continue;
@@ -200,159 +599,381 @@
       };
 
       const handlePdf = async (e) => {
-        const f = e.target.files?.[0]; if (!f || f.type !== 'application/pdf') return;
+        const f = e.target.files?.[0];
+        if (!f || f.type !== 'application/pdf') return;
         const base64 = await fileToBase64(f);
         setPdf({ name: f.name, base64 });
       };
 
       const analyze = async () => {
-        if (!images.length && !pdf) { setError('请先上传图片或PDF'); return; }
-        setLoading(true); setError(null); setResult(null);
+        if (!images.length && !pdf) {
+          setError('请先上传图片或PDF');
+          return;
+        }
+        setLoading(true);
+        setError(null);
+        setResult(null);
         try {
-          const data = await api.analyze(mode, images.map(i => ({ base64: i.base64, mimeType: i.mimeType })), pdf ? { base64: pdf.base64 } : null);
+          const data = await api.analyze(
+            mode,
+            images.map(i => ({ base64: i.base64, mimeType: i.mimeType })),
+            pdf ? { base64: pdf.base64 } : null,
+            language
+          );
           setResult({ type: mode, data });
-        } catch (e) { setError(e.message || '分析失败，请重试'); }
+          
+          // 保存到历史记录
+          const history = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]');
+          history.unshift({
+            type: mode,
+            name: data.name || data.overall_summary?.substring(0, 20) || '未命名',
+            date: new Date().toISOString(),
+            data
+          });
+          localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history.slice(0, 50)));
+        } catch (e) {
+          setError(e.message || '分析失败，请重试');
+        }
         setLoading(false);
       };
 
+      // 字体大小样式
+      const fontSize = {
+        title: largeFont ? 'text-3xl' : 'text-2xl',
+        subtitle: largeFont ? 'text-2xl' : 'text-xl',
+        body: largeFont ? 'text-xl' : 'text-base',
+        button: largeFont ? 'text-xl py-4' : 'text-lg py-3',
+        tab: largeFont ? 'text-lg py-4' : 'text-base py-3'
+      };
+
       return (
-        <div className="min-h-screen bg-gray-50">
-          {!agreed && <DisclaimerModal onAgree={handleAgree} />}
-          
-          <header className="bg-gradient-to-r from-blue-700 to-blue-600 shadow-md sticky top-0 z-20">
-            <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-white">
-                <HeartPulse className="w-8 h-8" />
-                <h1 className="text-xl font-bold">MediScan AI</h1>
-              </div>
-              <div className="bg-white/20 text-white text-xs px-2 py-1 rounded">AI智能版</div>
-            </div>
-          </header>
-
-          <div className="bg-white shadow sticky top-[60px] z-10 py-3">
-            <div className="max-w-4xl mx-auto px-4 grid grid-cols-3 gap-3">
-              {[['report', '查体检', 'blue'], ['medicine', '看药品', 'green'], ['food', '看食品', 'orange']].map(([m, label, color]) => (
-                <button key={m} onClick={() => switchMode(m)} className={`flex flex-col items-center py-3 rounded-xl border-2 transition-all ${mode === m ? `bg-${color}-600 border-${color}-600 text-white shadow-lg` : `bg-white border-${color}-100 text-gray-500`}`}>
-                  {m === 'report' ? <FileText className="w-8 h-8 mb-1"/> : m === 'medicine' ? <Pill className="w-8 h-8 mb-1"/> : <Utensils className="w-8 h-8 mb-1"/>}
-                  <span className="text-sm font-bold">{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <main className={`max-w-4xl mx-auto px-4 py-6 ${!agreed ? 'blur-sm pointer-events-none' : ''}`}>
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-800 mb-1">
-                {mode === 'report' ? '体检报告看不懂？' : mode === 'medicine' ? '这药怎么吃？' : '这东西能吃吗？'}
-              </h2>
-              <p className="text-gray-600">{mode === 'report' ? '拍照上传，帮您讲明白' : mode === 'medicine' ? '拍药盒说明书，帮您把关' : '拍配料表，帮您看看'}</p>
-            </div>
-
-            {!result && (
-              <div className="space-y-4">
-                {mode === 'report' && (
-                  <div className={`border-4 border-dashed rounded-2xl p-6 text-center ${pdf ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`}>
-                    {pdf ? (
-                      <div className="flex items-center justify-center gap-3">
-                        <FileText className="w-10 h-10 text-blue-600"/>
-                        <span className="font-bold text-blue-800">{pdf.name}</span>
-                        <button onClick={() => setPdf(null)} className="p-2 bg-red-100 rounded-full text-red-600"><X className="w-5 h-5"/></button>
-                      </div>
-                    ) : (
-                      <><FileText className="w-16 h-16 text-gray-400 mx-auto mb-3"/>
-                      <button onClick={() => pdfRef.current?.click()} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full">上传PDF</button></>
-                    )}
-                    <input ref={pdfRef} type="file" accept="application/pdf" onChange={handlePdf} className="hidden"/>
-                  </div>
-                )}
-                
-                <div className={`border-4 border-dashed rounded-2xl p-6 ${images.length ? 'border-teal-400 bg-teal-50' : 'border-gray-300'}`}>
-                  {images.length === 0 ? (
-                    <div className="text-center">
-                      {mode === 'medicine' ? <Pill className="w-16 h-16 text-gray-400 mx-auto mb-3"/> : mode === 'food' ? <Utensils className="w-16 h-16 text-gray-400 mx-auto mb-3"/> : <FileText className="w-16 h-16 text-gray-400 mx-auto mb-3"/>}
-                      <button onClick={() => imgRef.current?.click()} className="px-6 py-3 bg-teal-600 text-white font-bold rounded-full">拍照上传</button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-3">
-                      {images.map((img, i) => (
-                        <div key={i} className="relative aspect-square rounded-lg overflow-hidden">
-                          <img src={img.preview} className="w-full h-full object-cover"/>
-                          <button onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"><X className="w-4 h-4"/></button>
-                        </div>
-                      ))}
-                      <button onClick={() => imgRef.current?.click()} className="aspect-square border-2 border-dashed border-teal-300 rounded-lg flex items-center justify-center text-teal-600 font-bold">+加图</button>
-                    </div>
-                  )}
-                  <input ref={imgRef} type="file" accept="image/*" multiple onChange={handleImage} className="hidden"/>
+        <AppContext.Provider value={{ largeFont, setLargeFont, language, setLanguage }}>
+          <div className="min-h-screen bg-gray-50">
+            {!agreed && <DisclaimerModal onAgree={handleAgree} />}
+            <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
+            {result?.type === 'medicine' && (
+              <MedicineReminderModal 
+                medicine={result.data} 
+                isOpen={showReminder} 
+                onClose={() => setShowReminder(false)} 
+              />
+            )}
+            
+            {/* Header */}
+            <header className="bg-gradient-to-r from-blue-700 to-blue-600 shadow-md sticky top-0 z-20">
+              <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-white">
+                  <Icons.Heart className="w-8 h-8" />
+                  <h1 className={`font-bold ${largeFont ? 'text-2xl' : 'text-xl'}`}>MediScan AI</h1>
                 </div>
-
-                {error && <div className="p-4 bg-red-100 border-l-4 border-red-500 text-red-800 rounded">{error}</div>}
-
-                <button onClick={analyze} disabled={loading || (!images.length && !pdf)} className={`w-full py-5 rounded-xl text-xl font-bold transition-all ${loading || (!images.length && !pdf) ? 'bg-gray-300 text-gray-500' : 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg hover:shadow-xl'}`}>
-                  {loading ? <ThinkingIndicator mode={mode}/> : '开始帮我看'}
+                <button 
+                  onClick={() => setShowSettings(true)}
+                  className={`flex items-center bg-white/20 text-white px-3 py-1 rounded-lg ${largeFont ? 'text-base' : 'text-sm'}`}
+                >
+                  {largeFont && <span className="mr-1">大字版</span>}
+                  <Icons.Settings className="w-5 h-5"/>
                 </button>
+              </div>
+            </header>
+
+            {/* Mode Tabs - 大字版使用卡片样式 */}
+            {largeFont ? (
+              <div className="bg-white shadow p-4">
+                <div className="max-w-4xl mx-auto space-y-3">
+                  {[
+                    { key: 'report', icon: Icons.File, title: '体检报告看不懂？', desc: '拍照上传，帮您讲明白', color: 'blue' },
+                    { key: 'medicine', icon: Icons.Pill, title: '这药怎么吃？', desc: '拍一下包装盒，我讲给您听', color: 'green' },
+                    { key: 'food', icon: Icons.Utensils, title: '配料表看不清？', desc: '字太小没关系，我来帮您读', color: 'orange' }
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      onClick={() => switchMode(item.key)}
+                      className={`w-full flex items-center p-4 rounded-2xl border-2 transition-all ${
+                        mode === item.key 
+                          ? `border-${item.color}-500 bg-${item.color}-50` 
+                          : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className={`p-3 rounded-xl mr-4 ${mode === item.key ? `bg-${item.color}-500 text-white` : `bg-${item.color}-100 text-${item.color}-600`}`}>
+                        <item.icon className="w-8 h-8"/>
+                      </div>
+                      <div className="text-left">
+                        <div className={`font-bold ${fontSize.subtitle}`}>{item.title}</div>
+                        <div className={`text-gray-500 ${fontSize.body}`}>{item.desc}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white shadow sticky top-[60px] z-10 py-3">
+                <div className="max-w-4xl mx-auto px-4 grid grid-cols-3 gap-3">
+                  {[
+                    { key: 'report', icon: Icons.File, label: '查体检', color: 'blue' },
+                    { key: 'medicine', icon: Icons.Pill, label: '看药品', color: 'green' },
+                    { key: 'food', icon: Icons.Utensils, label: '看食品', color: 'orange' }
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      onClick={() => switchMode(item.key)}
+                      className={`flex flex-col items-center ${fontSize.tab} rounded-xl border-2 transition-all ${
+                        mode === item.key
+                          ? `bg-${item.color}-600 border-${item.color}-600 text-white shadow-lg`
+                          : `bg-white border-${item.color}-100 text-gray-500`
+                      }`}
+                    >
+                      <item.icon className="w-8 h-8 mb-1"/>
+                      <span className="font-bold">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
-            {result && (
-              <div className="space-y-6 animate-fade-in">
-                <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-blue-500">
-                  <h3 className="text-xl font-bold text-gray-800 mb-3">📋 分析结果</h3>
+            {/* Main Content */}
+            <main className={`max-w-4xl mx-auto px-4 py-6 ${!agreed ? 'blur-sm pointer-events-none' : ''}`}>
+              {!result ? (
+                <>
+                  {/* Upload Area */}
+                  <div className="space-y-4">
+                    {mode === 'report' && (
+                      <div className={`border-4 border-dashed rounded-2xl p-6 text-center ${pdf ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`}>
+                        {pdf ? (
+                          <div className="flex items-center justify-center gap-3">
+                            <Icons.File className="w-10 h-10 text-blue-600"/>
+                            <span className={`font-bold text-blue-800 ${fontSize.body}`}>{pdf.name}</span>
+                            <button onClick={() => setPdf(null)} className="p-2 bg-red-100 rounded-full text-red-600">
+                              <Icons.X className="w-5 h-5"/>
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <Icons.File className="w-16 h-16 text-gray-400 mx-auto mb-3"/>
+                            <button 
+                              onClick={() => pdfRef.current?.click()} 
+                              className={`px-6 bg-blue-600 text-white font-bold rounded-full ${fontSize.button}`}
+                            >
+                              上传PDF
+                            </button>
+                          </>
+                        )}
+                        <input ref={pdfRef} type="file" accept="application/pdf" onChange={handlePdf} className="hidden"/>
+                      </div>
+                    )}
+                    
+                    <div className={`border-4 border-dashed rounded-2xl p-6 ${images.length ? 'border-teal-400 bg-teal-50' : 'border-gray-300'}`}>
+                      {images.length === 0 ? (
+                        <div className="text-center">
+                          {mode === 'medicine' ? <Icons.Pill className="w-16 h-16 text-gray-400 mx-auto mb-3"/> 
+                           : mode === 'food' ? <Icons.Utensils className="w-16 h-16 text-gray-400 mx-auto mb-3"/> 
+                           : <Icons.File className="w-16 h-16 text-gray-400 mx-auto mb-3"/>}
+                          <button 
+                            onClick={() => imgRef.current?.click()} 
+                            className={`px-6 bg-teal-600 text-white font-bold rounded-full ${fontSize.button}`}
+                          >
+                            拍照上传
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-3">
+                          {images.map((img, i) => (
+                            <div key={i} className="relative aspect-square rounded-lg overflow-hidden">
+                              <img src={img.preview} className="w-full h-full object-cover"/>
+                              <button 
+                                onClick={() => setImages(prev => prev.filter((_, idx) => idx !== i))} 
+                                className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"
+                              >
+                                <Icons.X className="w-4 h-4"/>
+                              </button>
+                            </div>
+                          ))}
+                          <button 
+                            onClick={() => imgRef.current?.click()} 
+                            className="aspect-square border-2 border-dashed border-teal-300 rounded-lg flex items-center justify-center text-teal-600 font-bold"
+                          >
+                            +加图
+                          </button>
+                        </div>
+                      )}
+                      <input ref={imgRef} type="file" accept="image/*" multiple onChange={handleImage} className="hidden"/>
+                    </div>
+
+                    {error && (
+                      <div className={`p-4 bg-red-100 border-l-4 border-red-500 text-red-800 rounded ${fontSize.body}`}>
+                        {error}
+                      </div>
+                    )}
+
+                    <button 
+                      onClick={analyze} 
+                      disabled={loading || (!images.length && !pdf)}
+                      className={`w-full rounded-xl font-bold transition-all ${fontSize.button} ${
+                        loading || (!images.length && !pdf) 
+                          ? 'bg-gray-300 text-gray-500' 
+                          : 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg hover:shadow-xl'
+                      }`}
+                    >
+                      {loading ? '正在分析...' : '开始帮我看'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* Results */
+                <div className="space-y-6 animate-fade-in">
+                  {/* 药品结果 */}
+                  {result.type === 'medicine' && (
+                    <>
+                      <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-green-500">
+                        <h3 className={`font-bold text-gray-800 mb-2 ${fontSize.title}`}>💊 {result.data.name}</h3>
+                        <p className={`text-gray-700 mb-4 ${fontSize.body}`}>{result.data.summary}</p>
+                        <TTSButton text={`${result.data.name}。${result.data.summary}`} size="large"/>
+                      </div>
+                      
+                      <div className="bg-white rounded-2xl shadow p-6">
+                        <h4 className={`font-bold text-gray-800 mb-2 ${fontSize.subtitle}`}>🎯 这是什么药？</h4>
+                        <p className={`text-gray-700 ${fontSize.body}`}>{result.data.efficacy}</p>
+                        <div className="mt-3"><TTSButton text={result.data.efficacy}/></div>
+                      </div>
+                      
+                      <div className="bg-white rounded-2xl shadow p-6">
+                        <h4 className={`font-bold text-gray-800 mb-2 ${fontSize.subtitle}`}>📋 怎么吃？</h4>
+                        <p className={`text-gray-700 ${fontSize.body}`}>{result.data.usage}</p>
+                        <div className="mt-3"><TTSButton text={result.data.usage}/></div>
+                      </div>
+                      
+                      <div className="bg-red-50 rounded-2xl shadow p-6 border-l-4 border-red-500">
+                        <h4 className={`font-bold text-red-800 mb-2 ${fontSize.subtitle}`}>⚠️ 特别提醒</h4>
+                        <p className={`text-red-700 ${fontSize.body}`}>{result.data.contraindications}</p>
+                        <div className="mt-3"><TTSButton text={result.data.contraindications}/></div>
+                      </div>
+                      
+                      {/* 用药提醒按钮 */}
+                      <button 
+                        onClick={() => setShowReminder(true)}
+                        className={`w-full flex items-center justify-center bg-blue-50 text-blue-700 border-2 border-blue-200 rounded-xl font-bold ${fontSize.button}`}
+                      >
+                        <Icons.Clock className={`${largeFont ? 'w-6 h-6' : 'w-5 h-5'} mr-2`}/>
+                        设置用药提醒
+                      </button>
+                      
+                      {/* 分享给子女 */}
+                      <ShareButton type="medicine" data={result.data}/>
+                    </>
+                  )}
+                  
+                  {/* 食品结果 */}
+                  {result.type === 'food' && (
+                    <>
+                      <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-orange-500">
+                        <h3 className={`font-bold text-gray-800 mb-2 ${fontSize.title}`}>🍎 {result.data.name}</h3>
+                        <p className={`text-gray-700 mb-4 ${fontSize.body}`}>{result.data.summary}</p>
+                        <TTSButton text={`${result.data.name}。${result.data.summary}`} size="large"/>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-3">
+                        {['sugar', 'salt', 'fat'].map(key => {
+                          const level = result.data.nutrition_alert?.[key];
+                          const labels = { sugar: '糖', salt: '盐', fat: '油' };
+                          const colors = level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700';
+                          return (
+                            <div key={key} className={`rounded-xl p-4 text-center ${colors}`}>
+                              <div className={`font-bold ${fontSize.subtitle}`}>{labels[key]}</div>
+                              <div className={fontSize.body}>{level === 'high' ? '高⚠️' : '低✅'}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      <div className="bg-white rounded-2xl shadow p-6">
+                        <h4 className={`font-bold text-gray-800 mb-2 ${fontSize.subtitle}`}>📝 主要成分</h4>
+                        <p className={`text-gray-700 ${fontSize.body}`}>{result.data.ingredients_analysis}</p>
+                      </div>
+                      
+                      <div className="bg-green-50 rounded-2xl shadow p-6 border-l-4 border-green-500">
+                        <h4 className={`font-bold text-green-800 mb-2 ${fontSize.subtitle}`}>👴 老人建议</h4>
+                        <p className={`text-green-700 ${fontSize.body}`}>{result.data.advice_for_elderly}</p>
+                        <div className="mt-3"><TTSButton text={result.data.advice_for_elderly}/></div>
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* 体检报告结果 */}
                   {result.type === 'report' && (
-                    <div className="space-y-4">
-                      <p className="text-lg text-gray-700">{result.data.overall_summary}</p>
-                      <TTSButton text={result.data.overall_summary} size="large"/>
+                    <>
+                      <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-blue-500">
+                        <h3 className={`font-bold text-gray-800 mb-2 ${fontSize.title}`}>📋 总体情况</h3>
+                        <p className={`text-gray-700 mb-4 ${fontSize.body}`}>{result.data.overall_summary}</p>
+                        <TTSButton text={result.data.overall_summary} size="large"/>
+                      </div>
+                      
                       {result.data.attention_needed?.length > 0 && (
-                        <div className="mt-4">
-                          <h4 className="flex items-center text-lg font-bold text-orange-600 mb-3"><AlertTriangle className="w-5 h-5 mr-2"/>需要注意</h4>
+                        <div className="space-y-4">
+                          <h3 className={`font-bold text-orange-600 flex items-center ${fontSize.subtitle}`}>
+                            <Icons.Alert className="w-6 h-6 mr-2"/>需要关注的指标
+                          </h3>
                           {result.data.attention_needed.map((item, i) => (
-                            <div key={i} className="bg-orange-50 rounded-xl p-4 mb-3 border-l-4 border-orange-400">
-                              <div className="font-bold text-gray-800">{item.item} {item.value && <span className="text-orange-600">({item.value})</span>}</div>
-                              <p className="text-gray-600 mt-1">{item.explanation}</p>
-                              <p className="text-green-700 mt-2 font-medium">💡 {item.advice}</p>
+                            <div key={i} className="bg-orange-50 rounded-2xl p-6 border-l-4 border-orange-400">
+                              <div className={`font-bold text-gray-800 ${fontSize.subtitle}`}>
+                                {item.item} {item.value && <span className="text-orange-600">({item.value})</span>}
+                              </div>
+                              <p className={`text-gray-600 mt-2 ${fontSize.body}`}>{item.explanation}</p>
+                              <p className={`text-green-700 mt-2 font-medium ${fontSize.body}`}>💡 {item.advice}</p>
+                              
+                              {item.follow_up && (
+                                <div className="mt-4 bg-blue-50 rounded-xl p-4 flex items-center justify-between">
+                                  <div>
+                                    <p className={`font-bold text-blue-800 ${fontSize.body}`}>
+                                      <Icons.Calendar className="w-5 h-5 inline mr-1"/>
+                                      建议 {item.follow_up.timeline} 复查
+                                    </p>
+                                    <p className={`text-blue-600 ${largeFont ? 'text-lg' : 'text-sm'}`}>
+                                      {item.follow_up.action}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      const events = [{
+                                        title: `复查提醒：${item.item}`,
+                                        description: `建议复查：${item.follow_up.action}\n\n原因：${item.explanation}`,
+                                        start: new Date(item.follow_up.target_date || Date.now() + 90*24*60*60*1000),
+                                        end: new Date((item.follow_up.target_date || Date.now() + 90*24*60*60*1000) + 3600000)
+                                      }];
+                                      downloadICS(generateICS(events), `复查提醒_${item.item}.ics`);
+                                    }}
+                                    className={`px-4 py-2 bg-blue-600 text-white rounded-lg font-bold ${largeFont ? 'text-lg' : 'text-sm'}`}
+                                  >
+                                    存入日历
+                                  </button>
+                                </div>
+                              )}
+                              
+                              <div className="mt-3"><TTSButton text={`${item.item}。${item.explanation}。建议：${item.advice}`}/></div>
                             </div>
                           ))}
                         </div>
                       )}
-                    </div>
+                    </>
                   )}
-                  {result.type === 'medicine' && (
-                    <div className="space-y-3">
-                      <h4 className="text-2xl font-bold text-blue-800">{result.data.name}</h4>
-                      <p><strong>功效：</strong>{result.data.efficacy}</p>
-                      <p><strong>用法：</strong>{result.data.usage}</p>
-                      <p className="text-red-600"><strong>注意：</strong>{result.data.contraindications}</p>
-                      <TTSButton text={`${result.data.name}。${result.data.efficacy}。用法：${result.data.usage}。注意：${result.data.contraindications}`} size="large"/>
-                    </div>
-                  )}
-                  {result.type === 'food' && (
-                    <div className="space-y-3">
-                      <h4 className="text-2xl font-bold text-orange-800">{result.data.name}</h4>
-                      <p>{result.data.ingredients_analysis}</p>
-                      <div className="flex gap-2">
-                        {['sugar', 'salt', 'fat'].map(k => (
-                          <span key={k} className={`px-3 py-1 rounded-full text-sm font-bold ${result.data.nutrition_alert?.[k] === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                            {k === 'sugar' ? '糖' : k === 'salt' ? '盐' : '油'}: {result.data.nutrition_alert?.[k] === 'high' ? '高' : '低'}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="text-green-700 font-medium">👴 {result.data.advice_for_elderly}</p>
-                      <TTSButton text={`${result.data.name}。${result.data.summary}。${result.data.advice_for_elderly}`} size="large"/>
-                    </div>
-                  )}
+                  
+                  {/* 重新开始按钮 */}
+                  <button 
+                    onClick={clearAll} 
+                    className={`w-full bg-white border-2 border-gray-300 text-gray-700 font-bold rounded-xl flex items-center justify-center hover:bg-gray-50 ${fontSize.button}`}
+                  >
+                    <Icons.Refresh className={`${largeFont ? 'w-6 h-6' : 'w-5 h-5'} mr-2`}/>
+                    重新开始
+                  </button>
                 </div>
-                <button onClick={clearAll} className="w-full py-4 bg-white border-2 border-gray-300 text-gray-700 font-bold rounded-xl flex items-center justify-center hover:bg-gray-50">
-                  <RefreshCw className="w-6 h-6 mr-2"/>重新开始
-                </button>
-              </div>
-            )}
-          </main>
+              )}
+            </main>
 
-          <footer className="py-4 text-center text-gray-400 text-sm border-t bg-white mt-8">
-            <p>© 2025 {DOMAIN_NAME} | {APP_VERSION}</p>
-            <p>AI驱动，仅供参考，不作为医疗诊断依据</p>
-          </footer>
-        </div>
+            {/* Footer */}
+            <footer className={`py-4 text-center text-gray-400 border-t bg-white mt-8 ${largeFont ? 'text-base' : 'text-sm'}`}>
+              <p>© 2025 {DOMAIN_NAME} | {APP_VERSION}</p>
+              <p>AI驱动，仅供参考，不作为医疗诊断依据</p>
+            </footer>
+          </div>
+        </AppContext.Provider>
       );
     };
 
